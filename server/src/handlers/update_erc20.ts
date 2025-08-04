@@ -1,31 +1,87 @@
 
+import { db } from '../db';
+import { contractsTable, erc20PropertiesTable } from '../db/schema';
 import { type UpdateERC20Input, type ContractWithProperties } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
 export async function updateERC20(input: UpdateERC20Input): Promise<ContractWithProperties> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is updating an existing ERC20 contract and its properties.
-    // Steps:
-    // 1. Update the contracts table with new name/symbol if provided
-    // 2. Update the erc20_properties table with new total_supply/decimals if provided
-    // 3. Update the updated_at timestamp
-    // 4. Return the updated contract with properties
-    // Should throw error if contract not found or is not ERC20 type.
+  try {
+    // First, verify the contract exists and is ERC20 type
+    const existingContract = await db.select()
+      .from(contractsTable)
+      .where(eq(contractsTable.id, input.id))
+      .execute();
+
+    if (existingContract.length === 0) {
+      throw new Error(`Contract with id ${input.id} not found`);
+    }
+
+    if (existingContract[0].contract_type !== 'ERC20') {
+      throw new Error(`Contract with id ${input.id} is not an ERC20 contract`);
+    }
+
+    // Update contracts table if name or symbol provided
+    const contractUpdates: any = {};
+    if (input.name !== undefined) {
+      contractUpdates.name = input.name;
+    }
+    if (input.symbol !== undefined) {
+      contractUpdates.symbol = input.symbol;
+    }
+
+    if (Object.keys(contractUpdates).length > 0) {
+      contractUpdates.updated_at = new Date();
+      await db.update(contractsTable)
+        .set(contractUpdates)
+        .where(eq(contractsTable.id, input.id))
+        .execute();
+    }
+
+    // Update ERC20 properties if provided
+    const propertiesUpdates: any = {};
+    if (input.total_supply !== undefined) {
+      propertiesUpdates.total_supply = input.total_supply;
+    }
+    if (input.decimals !== undefined) {
+      propertiesUpdates.decimals = input.decimals;
+    }
+
+    if (Object.keys(propertiesUpdates).length > 0) {
+      propertiesUpdates.updated_at = new Date();
+      await db.update(erc20PropertiesTable)
+        .set(propertiesUpdates)
+        .where(eq(erc20PropertiesTable.contract_id, input.id))
+        .execute();
+    }
+
+    // Fetch and return the updated contract with properties
+    const result = await db.select()
+      .from(contractsTable)
+      .leftJoin(erc20PropertiesTable, eq(contractsTable.id, erc20PropertiesTable.contract_id))
+      .where(eq(contractsTable.id, input.id))
+      .execute();
+
+    const contractData = result[0];
     
-    return Promise.resolve({
-        id: input.id,
-        name: 'Updated Contract', // Placeholder
-        symbol: 'UPD', // Placeholder
-        contract_type: 'ERC20' as const,
-        created_at: new Date(),
-        updated_at: new Date(),
-        erc20_properties: {
-            id: 0, // Placeholder ID
-            contract_id: input.id,
-            total_supply: '1000000', // Placeholder
-            decimals: 18, // Placeholder
-            created_at: new Date(),
-            updated_at: new Date()
-        },
-        nft_properties: null
-    });
+    return {
+      id: contractData.contracts.id,
+      name: contractData.contracts.name,
+      symbol: contractData.contracts.symbol,
+      contract_type: contractData.contracts.contract_type,
+      created_at: contractData.contracts.created_at,
+      updated_at: contractData.contracts.updated_at,
+      erc20_properties: contractData.erc20_properties ? {
+        id: contractData.erc20_properties.id,
+        contract_id: contractData.erc20_properties.contract_id,
+        total_supply: contractData.erc20_properties.total_supply,
+        decimals: contractData.erc20_properties.decimals,
+        created_at: contractData.erc20_properties.created_at,
+        updated_at: contractData.erc20_properties.updated_at
+      } : null,
+      nft_properties: null
+    };
+  } catch (error) {
+    console.error('ERC20 update failed:', error);
+    throw error;
+  }
 }
